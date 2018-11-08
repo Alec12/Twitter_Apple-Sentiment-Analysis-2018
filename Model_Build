@@ -1,0 +1,125 @@
+# Split data into training and testing sets
+set.seed(123)  
+spl = sample.split(TweetsTM$Negative, SplitRatio = 0.7)
+
+TweetsTrain = TweetsTM %>% filter(spl == TRUE)
+TweetsTest = TweetsTM %>% filter(spl == FALSE)
+
+# Baseline accuracy
+table(TweetsTrain$Negative)
+table(TweetsTest$Negative)
+
+300/(300 + 55)
+
+
+# Basic Random Forests:
+TweetRF = randomForest(Negative ~ ., data=TweetsTrain)
+
+PredictRF = predict(TweetRF, newdata = TweetsTest)
+table(TweetsTest$Negative, PredictRF)
+tableAccuracy(TweetsTest$Negative, PredictRF)
+
+
+# Cross-validated CART model
+set.seed(3421)
+train.cart = train(Negative ~ .,
+                   data = TweetsTrain,
+                   method = "rpart",
+                   tuneGrid = data.frame(cp=seq(0, 0.4, 0.002)),
+                   trControl = trainControl(method="cv", number=10))
+train.cart
+train.cart$results
+
+ggplot(train.cart$results, aes(x = cp, y = Accuracy)) + geom_point(size = 2) + geom_line() + 
+  ylab("CV Accuracy") + theme_bw() + 
+  theme(axis.title=element_text(size=18), axis.text=element_text(size=18))
+
+mod.cart = train.cart$finalModel
+prp(mod.cart)
+
+predict.cart = predict(mod.cart, newdata = TweetsTest, type = "class") # why no model.matrix? 
+table(TweetsTest$Negative, predict.cart)
+tableAccuracy(TweetsTest$Negative, predict.cart)
+
+
+# Cross validated RF
+set.seed(311)
+train.rf = train(Negative ~ .,
+                 data = TweetsTrain,
+                 method = "rf",
+                 tuneGrid = data.frame(mtry = 1:120),
+                 trControl = trainControl(method = "cv", number = 5, verboseIter = TRUE))
+train.rf
+train.rf$results
+
+ggplot(train.rf$results, aes(x = mtry, y = Accuracy)) + geom_point(size = 2) + geom_line() + 
+  ylab("CV Accuracy") + theme_bw() + 
+  theme(axis.title=element_text(size=18), axis.text=element_text(size=18))
+
+mod.rf = train.rf$finalModel
+predict.rf = predict(mod.rf, newdata = TweetsTest)
+table(TweetsTest$Negative, predict.rf)
+tableAccuracy(TweetsTest$Negative, predict.rf)
+
+# Variable importance 
+as.data.frame(mod.rf$importance) %>%
+  mutate(Words = rownames(mod.rf$importance)) %>%
+  arrange(desc(MeanDecreaseGini))
+
+
+# Logistic Regression
+
+TweetLog = glm(Negative ~ ., data = TweetsTrain, family = "binomial")
+summary(TweetLog)
+
+PredictLog = predict(TweetLog, newdata = TweetsTest, type = "response")
+table(TweetsTest$Negative, PredictLog > 0.5)
+tableAccuracy(TweetsTest$Negative, PredictLog > 0.5)
+
+
+
+# Stepwise Regression
+TweetStepLog = step(TweetLog, direction = "backward")
+summary(TweetStepLog)
+length(TweetStepLog$coefficients)
+
+PredictStepLog = predict(TweetStepLog, newdata = TweetsTest, type = "response")
+table(TweetsTest$Negative, PredictStepLog > 0.5)
+tableAccuracy(TweetsTest$Negative, PredictStepLog > 0.5)
+
+
+# Boosting
+tGrid = expand.grid(n.trees = (1:100)*50, interaction.depth = c(1,2,4,6,8,10,12,14,16),
+                    shrinkage = 0.01, n.minobsinnode = 10)
+
+set.seed(232)
+train.boost <- train(Negative ~ .,
+                     data = TweetsTrain,
+                     method = "gbm",
+                     tuneGrid = tGrid,
+                     trControl = trainControl(method="cv", number=5, verboseIter = TRUE),
+                     metric = "Accuracy",
+                     distribution = "bernoulli")
+train.boost
+train.boost$results
+
+ggplot(train.boost$results, aes(x = n.trees, y = Accuracy, colour = as.factor(interaction.depth))) + geom_line() + 
+  ylab("CV Accuracy") + theme_bw() + theme(axis.title=element_text(size=18), axis.text=element_text(size=18)) + 
+  scale_color_discrete(name = "interaction.depth")
+
+mod.boost = train.boost$finalModel
+
+TweetsTest.mm = as.data.frame(model.matrix(Negative ~ . +0, data = TweetsTest))
+predict.boost = predict(mod.boost, newdata = TweetsTest.mm, n.trees = 4100, type = "response")
+table(TweetsTest$Negative, predict.boost < 0.5) # for some reason the probabilities are flipped in gbm
+tableAccuracy(TweetsTest$Negative, predict.boost < 0.5)
+
+
+# Linear Discriminant Analysis (distribution not normal, but highly predictive)
+library(MASS)
+lda.mod = lda(Negative ~ ., data = TweetsTrain)
+
+predict.lda = predict(lda.mod, newdata = TweetsTest)$class
+table(TweetsTest$Negative, predict.lda)
+tableAccuracy(TweetsTest$Negative, predict.lda)
+
