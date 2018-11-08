@@ -1,0 +1,74 @@
+# Load packages
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(MASS)
+library(caTools)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(caret)
+
+tableAccuracy <- function(test, pred) {
+  t = table(test, pred)
+  a = sum(diag(t))/length(test)
+  return(a)
+}
+
+
+# Load the data set
+Tweets = read.csv("tweets.csv", stringsAsFactors=FALSE)
+
+str(Tweets)
+
+# anything less than or equal to -1 is negative
+
+Tweets$Negative = as.factor(as.numeric(Tweets$Avg <= -1))
+Tweets$Avg <- NULL
+
+str(Tweets)
+table(Tweets$Negative)
+
+
+corpus = Corpus(VectorSource(Tweets$Tweet))
+
+# Corpus Test
+corpus[[1]]
+strwrap(corpus[[1]])
+
+
+corpus = tm_map(corpus, tolower)
+corpus = tm_map(corpus, removePunctuation)
+corpus = tm_map(corpus, removeWords, c("apple", stopwords("english")))
+corpus = tm_map(corpus, stemDocument)
+corpus = tm_map(corpus, removeWords, c("appl"))
+
+strwrap(corpus[[1]])
+
+
+frequencies = DocumentTermMatrix(corpus)
+
+frequencies
+
+findFreqTerms(frequencies, lowfreq=50)
+findFreqTerms(frequencies, lowfreq=20)
+
+sparse = removeSparseTerms(frequencies, 0.99)
+sparse = removeSparseTerms(frequencies, 0.995)
+sparse
+
+
+sparse = removeSparseTerms(frequencies, 0.99)
+
+
+TweetsTM = as.data.frame(as.matrix(sparse))
+colnames(TweetsTM) = make.names(colnames(TweetsTM))
+
+TweetsTM$Negative = Tweets$Negative
+
+#worldcloud
+wordcloud(corpus, max.words = 200, random.order = FALSE, rot.per = .1, 
+          colors = brewer.pal(8, "Dark2"))
+
+
